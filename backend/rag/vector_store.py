@@ -1,6 +1,6 @@
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from langchain_chroma import Chroma
 from ..config import Config
@@ -80,7 +80,7 @@ def get_stats() -> dict:
     last_build_time = None
     chroma_sqlite = Path(Config.CHROMA_PERSIST_DIR) / "chroma.sqlite3"
     if chroma_sqlite.exists():
-        last_build_time = datetime.fromtimestamp(chroma_sqlite.stat().st_mtime, tz=timezone.utc).isoformat()
+        last_build_time = datetime.fromtimestamp(chroma_sqlite.stat().st_mtime, tz=timezone(timedelta(hours=8))).isoformat()
         try:
             store = get_vector_store()
             chunk_count = store._collection.count()

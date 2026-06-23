@@ -3,7 +3,7 @@
 import sqlite3
 import uuid
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -258,5 +258,8 @@ class Database:
         return row["cnt"] if row else 0
 
 
+CHINA_TZ = timezone(timedelta(hours=8))
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(CHINA_TZ).isoformat()

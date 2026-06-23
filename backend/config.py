@@ -34,38 +34,54 @@ class Config:
             cls.LLM_SETTINGS = {
                 "deepseek": {
                     "api_key": os.getenv("DEEPSEEK_API_KEY", ""),
-                    "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
-                    "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+                    "model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+                    "base_url": os.getenv(
+                        "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+                    ),
                 },
                 "ollama": {
-                    "model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+                    "model": os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b"),
                     "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
                 },
             }
 
         # ── 便捷访问属性 ──
         cls.DEEPSEEK_API_KEY = cls._ps("deepseek", "api_key", "")
-        cls.DEEPSEEK_MODEL = cls._ps("deepseek", "model", "deepseek-chat")
-        cls.DEEPSEEK_BASE_URL = cls._ps("deepseek", "base_url", "https://api.deepseek.com")
-        cls.OLLAMA_MODEL = cls._ps("ollama", "model", "qwen2.5:7b")
+        cls.DEEPSEEK_MODEL = cls._ps("deepseek", "model", "deepseek-v4-flash")
+        cls.DEEPSEEK_BASE_URL = cls._ps(
+            "deepseek", "base_url", "https://api.deepseek.com"
+        )
+        cls.OLLAMA_MODEL = cls._ps("ollama", "model", "qwen2.5:0.5b")
         cls.OLLAMA_BASE_URL = cls._ps("ollama", "base_url", "http://localhost:11434")
 
         # ── 其他配置 ──
         cls.EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "huggingface")
-        cls.HF_EMBEDDING_MODEL = os.getenv("HF_EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
+        cls.HF_EMBEDDING_MODEL = os.getenv(
+            "HF_EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5"
+        )
         cls.HF_ENDPOINT = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
-        cls.CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", str(PROJECT_ROOT / "data" / "chroma_db"))
-        cls.SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", str(PROJECT_ROOT / "data" / "chatbot.db"))
-        cls.KNOWLEDGE_DIR = os.getenv("KNOWLEDGE_DIR", str(PROJECT_ROOT / "data" / "raw"))
+        cls.CHROMA_PERSIST_DIR = os.getenv(
+            "CHROMA_PERSIST_DIR", str(PROJECT_ROOT / "data" / "chroma_db")
+        )
+        cls.SQLITE_DB_PATH = os.getenv(
+            "SQLITE_DB_PATH", str(PROJECT_ROOT / "data" / "chatbot.db")
+        )
+        cls.KNOWLEDGE_DIR = os.getenv(
+            "KNOWLEDGE_DIR", str(PROJECT_ROOT / "data" / "raw")
+        )
         cls.RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "6"))
-        cls.RETRIEVAL_SCORE_THRESHOLD = float(os.getenv("RETRIEVAL_SCORE_THRESHOLD", "0.3"))
+        cls.RETRIEVAL_SCORE_THRESHOLD = float(
+            os.getenv("RETRIEVAL_SCORE_THRESHOLD", "0.3")
+        )
         cls.MAX_CONTEXT_MESSAGES = int(os.getenv("MAX_CONTEXT_MESSAGES", "50"))
         cls.MAX_AGENT_ITERATIONS = int(os.getenv("MAX_AGENT_ITERATIONS", "5"))
         cls.KB_OVERVIEW = os.getenv(
             "KB_OVERVIEW",
             "本知识库涵盖：宁波工程学院网安学院的招生简章、课程体系、师资介绍、学院概况、实验室信息、学科建设等相关内容。",
         )
-        cls.BLOCK_MESSAGE = "⚠️ 抱歉，您的问题包含不适宜的内容。请遵守网络安全规范，重新提问。"
+        cls.BLOCK_MESSAGE = (
+            "⚠️ 抱歉，您的问题包含不适宜的内容。请遵守网络安全规范，重新提问。"
+        )
         cls.UNKNOWN_MESSAGE = (
             "📚 抱歉，我目前的知识库暂时无法回答您的问题。"
             "我的知识范围包括：网安学院的招生、课程、师资、实验室等相关信息。"
@@ -104,21 +120,48 @@ class Config:
         set_key(str(ENV_FILE), "LLM_PROVIDER", provider, quote_mode="never")
 
         # 写 LLM_SETTINGS JSON
-        set_key(str(ENV_FILE), "LLM_SETTINGS", json.dumps(cls.LLM_SETTINGS, ensure_ascii=False), quote_mode="never")
+        set_key(
+            str(ENV_FILE),
+            "LLM_SETTINGS",
+            json.dumps(cls.LLM_SETTINGS, ensure_ascii=False),
+            quote_mode="never",
+        )
 
         # 兼容：同时写扁平 key（旧代码读取用）
         if provider == "deepseek":
             if "api_key" in settings:
-                set_key(str(ENV_FILE), "DEEPSEEK_API_KEY", settings["api_key"], quote_mode="never")
+                set_key(
+                    str(ENV_FILE),
+                    "DEEPSEEK_API_KEY",
+                    settings["api_key"],
+                    quote_mode="never",
+                )
             if "model" in settings:
-                set_key(str(ENV_FILE), "DEEPSEEK_MODEL", settings["model"], quote_mode="never")
+                set_key(
+                    str(ENV_FILE),
+                    "DEEPSEEK_MODEL",
+                    settings["model"],
+                    quote_mode="never",
+                )
             if "base_url" in settings:
-                set_key(str(ENV_FILE), "DEEPSEEK_BASE_URL", settings["base_url"], quote_mode="never")
+                set_key(
+                    str(ENV_FILE),
+                    "DEEPSEEK_BASE_URL",
+                    settings["base_url"],
+                    quote_mode="never",
+                )
         elif provider == "ollama":
             if "model" in settings:
-                set_key(str(ENV_FILE), "OLLAMA_MODEL", settings["model"], quote_mode="never")
+                set_key(
+                    str(ENV_FILE), "OLLAMA_MODEL", settings["model"], quote_mode="never"
+                )
             if "base_url" in settings:
-                set_key(str(ENV_FILE), "OLLAMA_BASE_URL", settings["base_url"], quote_mode="never")
+                set_key(
+                    str(ENV_FILE),
+                    "OLLAMA_BASE_URL",
+                    settings["base_url"],
+                    quote_mode="never",
+                )
 
         cls.reload()
 

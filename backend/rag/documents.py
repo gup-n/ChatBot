@@ -3,7 +3,7 @@
 import csv
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -100,8 +100,8 @@ def get_document_info(data_dir: str | None = None) -> list[dict]:
             "filename": fp.name,
             "size_bytes": st.st_size,
             "format": fp.suffix.lower().lstrip("."),
-            "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
-            "created_at": datetime.fromtimestamp(st.st_ctime, tz=timezone.utc).isoformat(),
+            "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone(timedelta(hours=8))).isoformat(),
+            "created_at": datetime.fromtimestamp(st.st_ctime, tz=timezone(timedelta(hours=8))).isoformat(),
         })
     return infos
 
