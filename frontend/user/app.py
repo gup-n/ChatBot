@@ -22,7 +22,7 @@ import httpx, json, time
 
 # API 地址：本地用 127.0.0.1:8000，公网隧道用环境变量 STREAMLIT_API_URL
 API = os.environ.get("STREAMLIT_API_URL", "http://127.0.0.1:8000/api")
-_client = httpx.Client(transport=httpx.HTTPTransport(retries=0), timeout=30)
+_client = httpx.Client(transport=httpx.HTTPTransport(retries=0), timeout=300)
 
 st.set_page_config(page_title="网安学院问答机器人", page_icon="🛡️", layout="wide",
                    initial_sidebar_state="expanded")
@@ -270,7 +270,7 @@ def _chat_main():
         full = ""
         try:
             with _client.stream("POST", f"{API}/chat/send", headers=h,
-                                json={"message": p, "session_id": sid}, timeout=120) as r:
+                                json={"message": p, "session_id": sid}, timeout=300) as r:
                 if r.status_code != 200:
                     sp.error(f"请求失败 ({r.status_code})")
                 else:

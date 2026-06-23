@@ -155,10 +155,11 @@ class _OllamaStreamWrapper:
             "model": self.model,
             "messages": ollama_msgs,
             "stream": True,
-            "options": {"temperature": self.temperature},
+            "keep_alive": "30m",  # 保持模型常驻 30 分钟，避免间隔过长被卸载
+            "options": {"temperature": self.temperature, "num_ctx": 4096},
         }
 
-        with httpx.Client(timeout=120) as client:
+        with httpx.Client(timeout=300) as client:
             try:
                 with client.stream("POST", f"{self.base_url}/api/chat", json=body) as r:
                     if r.status_code != 200:
