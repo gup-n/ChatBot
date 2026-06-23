@@ -1,0 +1,8 @@
+[server]
+fileWatcherType = "poll"
+enableXsrfProtection = false
+enableCORS = false
+enableWebsocketCompression = false
+
+[browser]
+gatherUsageStats = false

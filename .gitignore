@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# 敏感配置
+.env
+
+# 数据文件
+data/chroma_db/
+data/chatbot.db
+data/raw/
+!data/raw/.gitkeep
+
+# Streamlit
+.streamlit/secrets.toml
