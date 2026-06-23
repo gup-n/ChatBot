@@ -123,6 +123,7 @@ def chat_send(req: ChatRequest, user: dict = Depends(get_current_user)):
 
     def _event_stream():
         full_text = ""
+        error_msg = ""
         try:
             for chunk in llm.stream(final_msgs):
                 if chunk.content:
@@ -130,13 +131,16 @@ def chat_send(req: ChatRequest, user: dict = Depends(get_current_user)):
                     yield f"data: {json.dumps({'token': chunk.content}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.exception("LLM stream error")
-            yield f"data: {json.dumps({'token': f'[错误: {e}]'}, ensure_ascii=False)}\n\n"
-        # 保存完整回答
+            error_msg = f"[错误: {e}]"
+            yield f"data: {json.dumps({'token': error_msg}, ensure_ascii=False)}\n\n"
+        # 保存完整回答（异常时保存错误信息，避免前端 rerun 后显示空白）
+        save_text = error_msg if (not full_text and error_msg) else full_text
         try:
-            db.add_message(req.session_id, "assistant", full_text)
+            if save_text.strip():
+                db.add_message(req.session_id, "assistant", save_text)
         except Exception:
             pass
-        yield f"data: {json.dumps({'done': True, 'full_text': full_text}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'done': True, 'full_text': save_text}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(_event_stream(), media_type="text/event-stream")
 

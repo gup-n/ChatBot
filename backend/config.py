@@ -127,42 +127,6 @@ class Config:
             quote_mode="never",
         )
 
-        # 兼容：同时写扁平 key（旧代码读取用）
-        if provider == "deepseek":
-            if "api_key" in settings:
-                set_key(
-                    str(ENV_FILE),
-                    "DEEPSEEK_API_KEY",
-                    settings["api_key"],
-                    quote_mode="never",
-                )
-            if "model" in settings:
-                set_key(
-                    str(ENV_FILE),
-                    "DEEPSEEK_MODEL",
-                    settings["model"],
-                    quote_mode="never",
-                )
-            if "base_url" in settings:
-                set_key(
-                    str(ENV_FILE),
-                    "DEEPSEEK_BASE_URL",
-                    settings["base_url"],
-                    quote_mode="never",
-                )
-        elif provider == "ollama":
-            if "model" in settings:
-                set_key(
-                    str(ENV_FILE), "OLLAMA_MODEL", settings["model"], quote_mode="never"
-                )
-            if "base_url" in settings:
-                set_key(
-                    str(ENV_FILE),
-                    "OLLAMA_BASE_URL",
-                    settings["base_url"],
-                    quote_mode="never",
-                )
-
         cls.reload()
 
     @classmethod

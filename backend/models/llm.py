@@ -135,14 +135,21 @@ class _OllamaStreamWrapper:
         import httpx, json
 
         ollama_msgs = []
+        system_parts = []
         for m in messages:
             if hasattr(m, "type"):
                 if m.type == "system":
-                    ollama_msgs.append({"role": "system", "content": m.content})
+                    system_parts.append(m.content)
                 elif m.type == "human":
                     ollama_msgs.append({"role": "user", "content": m.content})
                 elif m.type == "ai":
                     ollama_msgs.append({"role": "assistant", "content": m.content})
+
+        # 部分 Ollama 模型不支持 system 角色，合并到首条 user 消息
+        if system_parts and ollama_msgs:
+            ollama_msgs[0]["content"] = "\n\n".join(system_parts) + "\n\n" + ollama_msgs[0]["content"]
+        elif system_parts and not ollama_msgs:
+            ollama_msgs.append({"role": "user", "content": "\n\n".join(system_parts)})
 
         body = {
             "model": self.model,
@@ -152,12 +159,21 @@ class _OllamaStreamWrapper:
         }
 
         with httpx.Client(timeout=120) as client:
-            with client.stream("POST", f"{self.base_url}/api/chat", json=body) as r:
-                for line in r.iter_lines():
-                    if line:
+            try:
+                with client.stream("POST", f"{self.base_url}/api/chat", json=body) as r:
+                    if r.status_code != 200:
+                        error_text = r.read().decode("utf-8", errors="replace")
+                        raise RuntimeError(f"Ollama 返回 HTTP {r.status_code}: {error_text}")
+                    for line in r.iter_lines():
+                        if not line:
+                            continue
                         d = json.loads(line)
+                        if "error" in d:
+                            raise RuntimeError(f"Ollama 错误: {d['error']}")
                         msg = d.get("message", {})
                         token = msg.get("content", "") or msg.get("thinking", "")
                         yield AIMessageChunk(content=token)
                         if d.get("done"):
                             break
+            except httpx.ConnectError as e:
+                raise RuntimeError(f"无法连接到 Ollama 服务 ({self.base_url})，请确认 Ollama 已启动") from e

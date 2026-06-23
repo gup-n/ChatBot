@@ -59,9 +59,12 @@ def fetch_models(body: FetchModelsRequest, user: dict = Depends(_require_admin))
         models = fetch_models_list(body.provider, api_key=body.api_key, base_url=base_url)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except httpx.ConnectError:
+        raise HTTPException(502, f"无法连接到 {body.provider} 服务 ({base_url})。请确认服务已启动且地址正确。")
     except Exception as e:
         logger.exception("拉取模型列表失败: %s", e)
-        raise HTTPException(502, f"拉取模型列表失败: {e}. 请检查 API Key 和地址是否正确。")
+        hint = "" if body.provider == "ollama" else "请检查 API Key 和地址是否正确。"
+        raise HTTPException(502, f"拉取模型列表失败: {e}. {hint}")
 
     return {"models": models, "count": len(models)}
 

@@ -174,28 +174,21 @@ def _render_setup():
 
         c1, c2 = st.columns([3, 1])
         with c1:
-            model_list = st.session_state.get(f"model_list_{prov}", [])
-            model_options = [m["id"] for m in model_list]
-
-            # 当前选中
             current_model = st.session_state[model_key]
-            if current_model and current_model not in model_options:
-                model_options = [current_model] + model_options
-
-            selected = st.selectbox(
-                "模型名称",
-                options=model_options,
-                index=model_options.index(current_model) if current_model in model_options else 0,
-                placeholder="先「拉取模型列表」或手动输入",
-            ) if model_options else st.text_input(
+            model_name = st.text_input(
                 "模型名称",
                 value=current_model,
                 placeholder="如: deepseek-chat 或 qwen2.5:7b",
                 key=f"model_input_{prov}",
             )
+            # 显示已拉取的模型列表供参考
+            model_list = st.session_state.get(f"model_list_{prov}", [])
+            if model_list:
+                model_ids = [m["id"] for m in model_list]
+                st.caption(f"已拉取 {len(model_list)} 个模型: {' | '.join(model_ids[:8])}{'...' if len(model_ids) > 8 else ''}")
             # 更新选中的模型
-            if selected:
-                st.session_state[model_key] = selected
+            if model_name:
+                st.session_state[model_key] = model_name
 
         with c2:
             st.write("")  # 对齐
