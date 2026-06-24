@@ -11,11 +11,10 @@ def create_embedding_model() -> Embeddings:
         os.environ.setdefault("HF_ENDPOINT", getattr(Config, "HF_ENDPOINT", "https://hf-mirror.com"))
         from langchain_huggingface import HuggingFaceEmbeddings
 
-        model_name = Config.HF_EMBEDDING_MODEL  # "BAAI/bge-large-zh-v1.5"
+        model_name = Config.HF_EMBEDDING_MODEL
         local_dir = os.path.expanduser(f"~/.cache/huggingface/hub/models--{model_name.replace('/', '--')}/snapshots")
 
         if os.path.isdir(local_dir):
-            # 取最新的 snapshot
             snapshots = sorted(os.listdir(local_dir), reverse=True)
             for snap in snapshots:
                 snap_path = os.path.join(local_dir, snap)
@@ -24,14 +23,13 @@ def create_embedding_model() -> Embeddings:
                     return HuggingFaceEmbeddings(
                         model_name=snap_path,
                         model_kwargs={"device": "cpu"},
-                        encode_kwargs={"normalize_embeddings": True},
+                        encode_kwargs={"normalize_embeddings": True, "batch_size": 64},
                     )
 
-        # 兜底：尝试正常加载（需要网络）
         return HuggingFaceEmbeddings(
             model_name=model_name,
             model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
+            encode_kwargs={"normalize_embeddings": True, "batch_size": 64},
         )
 
     elif provider == "deepseek":

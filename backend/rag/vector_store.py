@@ -50,7 +50,10 @@ def rebuild_vector_store() -> Chroma:
     logger.info("向量化 %d 个片段...", len(chunks))
     embedding = create_embedding_model()
     with _lock:
-        _vector_store = Chroma.from_documents(documents=chunks, embedding=embedding, persist_directory=Config.CHROMA_PERSIST_DIR)
+        _vector_store = Chroma.from_documents(
+            documents=chunks, embedding=embedding, persist_directory=Config.CHROMA_PERSIST_DIR,
+            collection_metadata={"hnsw:space": "cosine"},
+        )
     if STALE_FILE.exists():
         STALE_FILE.unlink()
     logger.info("向量库构建完成")
