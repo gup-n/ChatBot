@@ -57,7 +57,7 @@ class Config:
         # ── 其他配置 ──
         cls.EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "huggingface")
         cls.HF_EMBEDDING_MODEL = os.getenv(
-            "HF_EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5"
+            "HF_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"
         )
         cls.HF_ENDPOINT = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
         cls.CHROMA_PERSIST_DIR = os.getenv(
