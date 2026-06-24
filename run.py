@@ -10,7 +10,31 @@
     用户聊天系统: http://localhost:8502  (注册后登录)
 """
 
-import subprocess, sys, time, os
+import subprocess, sys, time, os, signal
+
+
+def _shutdown(procs):
+    """先 terminate，5 秒后未退出则 force kill。"""
+    for name, proc in procs:
+        if proc.poll() is None:
+            print(f"[run] 关闭 {name} (PID {proc.pid})...")
+            # Windows 下 terminate 等价于 kill，直接发
+            proc.terminate()
+    # 等 5 秒让进程优雅退出
+    deadline = time.time() + 5
+    for name, proc in procs:
+        remaining = deadline - time.time()
+        if remaining > 0 and proc.poll() is None:
+            try:
+                proc.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                pass
+    # 还没死的强制 kill
+    for name, proc in procs:
+        if proc.poll() is None:
+            print(f"[run] 强制终止 {name} (PID {proc.pid})...")
+            proc.kill()
+            proc.wait()
 
 
 def main():
@@ -78,9 +102,7 @@ def main():
             proc.wait()
     except KeyboardInterrupt:
         print("\n[run] 正在关闭...")
-        for _, proc in procs:
-            proc.terminate()
-            proc.wait()
+        _shutdown(procs)
         print("[run] 已停止")
 
 

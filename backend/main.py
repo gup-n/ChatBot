@@ -12,6 +12,7 @@ from .database import Database
 from .auth import seed_admin
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 db: Database | None = None
@@ -56,16 +57,44 @@ async def lifespan(app: FastAPI):
     Config.ensure_dirs()
     db = Database(Config.SQLITE_DB_PATH)
     seed_admin(db)
-    # 启动时检测：如果 ChromaDB 已持久化，标记为已预热
+
+    # 启动时预加载嵌入模型，避免首次请求长时间阻塞
+    logger.info("预加载嵌入模型...")
+    try:
+        from .models.embedding import create_embedding_model
+        embedding = create_embedding_model()
+        logger.info("嵌入模型已就绪 (provider: %s)", Config.EMBEDDING_PROVIDER)
+    except Exception as e:
+        logger.warning("预加载嵌入模型失败（将在首次请求时重试）: %s", e)
+
+    # 如果有已持久化 ChromaDB，直接加载；否则向量库在 _init 中按需构建
     chroma_exists = (Path(Config.CHROMA_PERSIST_DIR) / "chroma.sqlite3").exists()
     app.state.warmed_up = chroma_exists
     app.state.warming_up = False
     app.state.warmup_error = None
     if chroma_exists:
-        logger.info("检测到已有向量库，跳过预热")
+        # 后台加载向量库（不阻塞启动）
+        t = threading.Thread(target=_load_existing_store, daemon=True)
+        t.start()
+        logger.info("检测到已有向量库，后台加载中...")
+    else:
+        logger.info("向量库不存在，将在 /rebuild 时自动构建")
+
     logger.info("FastAPI 启动完成 (DB: %s)", Config.SQLITE_DB_PATH)
     yield
     logger.info("FastAPI 关闭")
+
+
+def _load_existing_store():
+    """后台加载已有向量库（首次调用会完成 ChromaDB 初始化）。"""
+    try:
+        from .rag.vector_store import get_vector_store
+        get_vector_store()
+        app.state.warmed_up = True
+        logger.info("向量库后台加载完成")
+    except Exception as e:
+        logger.exception("向量库后台加载失败")
+        app.state.warmup_error = str(e)
 
 
 app = FastAPI(title="网安学院问答机器人 API", version="1.0.0", lifespan=lifespan)
