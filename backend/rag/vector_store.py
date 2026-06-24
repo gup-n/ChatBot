@@ -73,9 +73,8 @@ def mark_stale() -> None:
 
 
 def get_stats() -> dict:
-    from .documents import load_documents
-    raw_docs = load_documents()
-    doc_count = len(raw_docs)
+    from .documents import count_knowledge_files
+    doc_count = count_knowledge_files()
     chunk_count = 0
     last_build_time = None
     chroma_sqlite = Path(Config.CHROMA_PERSIST_DIR) / "chroma.sqlite3"

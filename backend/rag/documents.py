@@ -113,7 +113,23 @@ def read_document_content(filename: str, data_dir: str | None = None) -> dict:
         raise FileNotFoundError(f"文件不存在: {filename}")
     if not fp.resolve().is_relative_to(data_dir.resolve()):
         raise ValueError("非法文件路径")
-    if fp.suffix.lower() not in _LOADERS:
-        raise ValueError(f"不支持的文件格式: {fp.suffix}")
-    content = fp.read_text(encoding="utf-8")
+    suffix = fp.suffix.lower()
+    if suffix not in _LOADERS:
+        raise ValueError(f"不支持的文件格式: {suffix}")
+    # 纯文本格式直接读取，二进制格式用 loader 提取文本
+    if suffix in (".txt", ".md", ".json", ".csv"):
+        content = fp.read_text(encoding="utf-8")
+    else:
+        docs = _LOADERS[suffix](fp)
+        content = "\n\n---\n\n".join(d.page_content for d in docs) if docs else "(无法提取文本内容)"
     return {"filename": fp.name, "content": content, "size_bytes": fp.stat().st_size}
+
+
+def count_knowledge_files(data_dir: str | None = None) -> int:
+    """快速统计知识库文件数（不解析内容）。"""
+    data_dir = Path(data_dir or Config.KNOWLEDGE_DIR)
+    if not data_dir.exists():
+        return 0
+    return sum(1 for f in data_dir.iterdir()
+               if f.is_file() and not f.name.startswith(".")
+               and f.suffix.lower() in _LOADERS)
