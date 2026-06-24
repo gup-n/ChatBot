@@ -303,16 +303,15 @@ def _render_setup():
         else:
             c4.success("✅ 索引已同步")
 
-        if stats.get("stale") or stats.get("chunk_count", 0) == 0:
-            if st.button("🔄 重建向量索引", type="primary"):
-                r = _client.post(f"{API}/admin/rebuild", headers=h)
-                if r.status_code == 200:
-                    st.success("重建已启动，请稍后刷新查看")
-                else:
-                    try:
-                        st.error(r.json().get("detail", "重建失败"))
-                    except Exception:
-                        st.error(f"重建失败: {r.text}")
+        if st.button("🔄 重建向量索引", type="primary"):
+            r = _client.post(f"{API}/admin/rebuild", headers=h)
+            if r.status_code == 200:
+                st.success("重建已启动，请稍后刷新查看")
+            else:
+                try:
+                    st.error(r.json().get("detail", "重建失败"))
+                except Exception:
+                    st.error(f"重建失败: {r.text}")
 
         st.divider()
         st.subheader("➕ 添加文档")

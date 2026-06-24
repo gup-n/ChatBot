@@ -85,6 +85,17 @@ def get_stats() -> dict:
             chunk_count = store._collection.count()
         except Exception:
             pass
+    # 自动检测：知识库目录中是否有文件比 ChromaDB 更新
+    if not STALE_FILE.exists() and last_build_time and doc_count > 0:
+        knowledge_dir = Path(Config.KNOWLEDGE_DIR)
+        if knowledge_dir.exists():
+            latest_file_mtime = max(
+                (f.stat().st_mtime for f in knowledge_dir.iterdir()
+                 if f.is_file() and not f.name.startswith(".")),
+                default=0,
+            )
+            if latest_file_mtime > chroma_sqlite.stat().st_mtime:
+                mark_stale()
     return {
         "doc_count": doc_count,
         "chunk_count": chunk_count,
