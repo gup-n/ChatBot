@@ -20,3 +20,7 @@ data/raw/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local tooling and backups
+.claude/
+*.zip
