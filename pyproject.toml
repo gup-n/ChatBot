@@ -18,24 +18,14 @@ dependencies = [
     "pypdf>=5.0.0",
     "docx2txt>=0.8",
     "langchain-chroma>=1.1.0",
-    "torchvision>=0.27.0",
     "fastapi>=0.138.0",
     "uvicorn[standard]>=0.49.0",
     "httpx>=0.28.1",
     "python-jose[cryptography]>=3.5.0",
     "passlib[bcrypt]>=1.7.4",
     "werkzeug>=3.1.8",
-    "playwright>=1.60.0",
 ]
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-]
-
-[dependency-groups]
-dev = []

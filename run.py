@@ -10,7 +10,7 @@
     用户聊天系统: http://localhost:8502  (注册后登录)
 """
 
-import subprocess, sys, time, os, signal
+import subprocess, sys, time
 
 
 def _shutdown(procs):
