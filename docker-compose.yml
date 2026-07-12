@@ -1,0 +1,52 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatbot-backend
+    command: ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      STREAMLIT_API_URL: http://backend:8000/api
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatbot-admin
+    command: ["python", "-m", "streamlit", "run", "frontend/admin/app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true", "--server.enableXsrfProtection", "false", "--server.enableCORS", "false"]
+    depends_on:
+      - backend
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      STREAMLIT_API_URL: http://backend:8000/api
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+
+  user:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatbot-user
+    command: ["python", "-m", "streamlit", "run", "frontend/user/app.py", "--server.address", "0.0.0.0", "--server.port", "8502", "--server.headless", "true", "--server.enableXsrfProtection", "false", "--server.enableCORS", "false"]
+    depends_on:
+      - backend
+    ports:
+      - "8502:8502"
+    env_file:
+      - .env
+    environment:
+      STREAMLIT_API_URL: http://backend:8000/api
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env

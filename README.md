@@ -100,3 +100,34 @@ python run.py        一键启动全部服务
 **Q****：想使用本地 Ollama** **模型？** A：确保 Ollama 已安装并运行 → .env 中设置 LLM_PROVIDER=ollama → 控制台切换为 Ollama 并配置模型名。
 
 **Q****：端口被占用？** A：关闭占用进程，或修改 run.py 中的 --port 参数。
+
+**六、Docker 部署**
+
+如果你已经安装了 `Docker Desktop + WSL`，可以直接用 `docker compose` 部署。
+
+**1. 准备配置**
+
+1. 复制 `.env.example` 为 `.env`
+2. 填好 `DEEPSEEK_API_KEY`
+3. 把知识库文件放到 `data/raw/`
+
+**2. 启动**
+
+```bash
+docker compose up --build
+```
+
+**3. 访问**
+
+- 后端文档: http://localhost:8000/docs
+- 管理员控制台: http://localhost:8501
+- 用户聊天系统: http://localhost:8502
+
+**4. 默认账号**
+
+- 管理员: `admin / admin123`
+
+**5. 数据持久化**
+
+- `data/` 会映射到容器内，保留数据库和向量库
+- `.env` 会被容器读取并写回，管理员在界面里保存配置后会直接落到本机 `.env`
