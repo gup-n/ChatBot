@@ -4,27 +4,37 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: chatbot-backend
-    command: ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    init: true
+    restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     env_file:
       - .env
-    environment:
-      STREAMLIT_API_URL: http://backend:8000/api
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   admin:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: chatbot-admin
-    command: ["python", "-m", "streamlit", "run", "frontend/admin/app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true", "--server.enableXsrfProtection", "false", "--server.enableCORS", "false"]
+    init: true
+    restart: unless-stopped
+    command: ["python", "-m", "streamlit", "run", "frontend/admin/app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true"]
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "8501:8501"
+      - "${ADMIN_PORT:-8501}:8501"
     env_file:
       - .env
     environment:
@@ -38,11 +48,14 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: chatbot-user
-    command: ["python", "-m", "streamlit", "run", "frontend/user/app.py", "--server.address", "0.0.0.0", "--server.port", "8502", "--server.headless", "true", "--server.enableXsrfProtection", "false", "--server.enableCORS", "false"]
+    init: true
+    restart: unless-stopped
+    command: ["python", "-m", "streamlit", "run", "frontend/user/app.py", "--server.address", "0.0.0.0", "--server.port", "8502", "--server.headless", "true"]
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "8502:8502"
+      - "${USER_PORT:-8502}:8502"
     env_file:
       - .env
     environment:

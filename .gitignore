@@ -18,6 +18,9 @@ data/chatbot.db
 data/raw/
 !data/raw/.gitkeep
 
+# 评估脚本的本地输出（题集和脚本本身会提交）
+reports/
+
 # Streamlit
 .streamlit/secrets.toml
 

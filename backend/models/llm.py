@@ -8,7 +8,7 @@ PROVIDERS: dict[str, callable] = {}
 
 # 每个 provider 的默认 base_url
 DEFAULT_BASE_URLS: dict[str, str] = {
-    "deepseek": "https://api.deepseek.com",
+    "openai_compatible": "https://api.openai.com/v1",
     "ollama": "http://localhost:11434",
 }
 
@@ -33,26 +33,28 @@ def create_chat_model() -> BaseChatModel:
 #  内置提供商
 # ══════════════════════════════════════════════════
 
-def _make_deepseek():
+def _make_openai_compatible():
     from langchain_openai import ChatOpenAI
+    settings = Config.LLM_SETTINGS["openai_compatible"]
     return ChatOpenAI(
-        model=Config.DEEPSEEK_MODEL,
-        api_key=Config.DEEPSEEK_API_KEY,
-        base_url=Config.DEEPSEEK_BASE_URL,
-        temperature=0.7,
+        model=settings["model"],
+        api_key=settings["api_key"],
+        base_url=settings["base_url"],
+        temperature=Config.LLM_TEMPERATURE,
         streaming=True,
     )
 
 
 def _make_ollama():
+    settings = Config.LLM_SETTINGS["ollama"]
     return _OllamaStreamWrapper(
-        model=Config.OLLAMA_MODEL,
-        base_url=Config.OLLAMA_BASE_URL,
-        temperature=0.7,
+        model=settings["model"],
+        base_url=settings["base_url"],
+        temperature=Config.LLM_TEMPERATURE,
     )
 
 
-register_provider("deepseek", _make_deepseek)
+register_provider("openai_compatible", _make_openai_compatible)
 register_provider("ollama", _make_ollama)
 
 
@@ -83,7 +85,7 @@ def _fetch_openai_compatible(api_key: str, base_url: str):
     """OpenAI 兼容的 GET /models 接口。"""
     url = base_url.rstrip("/") + "/models"
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    with httpx.Client(timeout=15) as client:
+    with httpx.Client(timeout=Config.MODEL_LIST_TIMEOUT_SECONDS) as client:
         r = client.get(url, headers=headers)
         r.raise_for_status()
         data = r.json()
@@ -98,7 +100,7 @@ def _fetch_openai_compatible(api_key: str, base_url: str):
 def _fetch_ollama_models(_api_key: str, base_url: str):
     """Ollama 本地 GET /api/tags 接口。"""
     url = base_url.rstrip("/") + "/api/tags"
-    with httpx.Client(timeout=10) as client:
+    with httpx.Client(timeout=Config.MODEL_LIST_TIMEOUT_SECONDS) as client:
         r = client.get(url)
         r.raise_for_status()
         data = r.json()
@@ -110,7 +112,7 @@ def _fetch_ollama_models(_api_key: str, base_url: str):
     return sorted(models, key=lambda m: m["id"])
 
 
-_register_fetcher("deepseek", _fetch_openai_compatible)
+_register_fetcher("openai_compatible", _fetch_openai_compatible)
 _register_fetcher("ollama", _fetch_ollama_models)
 
 
@@ -155,11 +157,11 @@ class _OllamaStreamWrapper:
             "model": self.model,
             "messages": ollama_msgs,
             "stream": True,
-            "keep_alive": "30m",  # 保持模型常驻 30 分钟，避免间隔过长被卸载
-            "options": {"temperature": self.temperature, "num_ctx": 4096},
+            "keep_alive": Config.OLLAMA_KEEP_ALIVE,
+            "options": {"temperature": self.temperature, "num_ctx": Config.OLLAMA_NUM_CTX},
         }
 
-        with httpx.Client(timeout=300) as client:
+        with httpx.Client(timeout=Config.LLM_STREAM_TIMEOUT_SECONDS) as client:
             try:
                 with client.stream("POST", f"{self.base_url}/api/chat", json=body) as r:
                     if r.status_code != 200:

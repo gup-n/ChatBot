@@ -1,12 +1,12 @@
 """Pydantic 请求/响应模型。"""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── 认证 ────────────────────────────
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=2, max_length=64)
+    password: str = Field(min_length=3, max_length=256)
 
 
 class TokenResponse(BaseModel):
@@ -17,127 +17,55 @@ class TokenResponse(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=2, max_length=64)
+    password: str = Field(min_length=3, max_length=256)
 
 
 class ChangePasswordRequest(BaseModel):
-    old_password: str
-    new_password: str
+    old_password: str = Field(min_length=3, max_length=256)
+    new_password: str = Field(min_length=3, max_length=256)
 
 
 class ResetPasswordRequest(BaseModel):
     user_id: int
 
 
-class UserResponse(BaseModel):
-    id: int
-    username: str
-    is_admin: bool
-    created_at: str
-
-
 # ── 配置 ────────────────────────────
 class ConfigUpdate(BaseModel):
-    provider: str = "deepseek"
-    settings: dict = {}
+    kind: str = Field(default="llm", pattern="^(llm|embedding)$")
+    provider: str = Field(default="openai_compatible", min_length=1, max_length=32)
+    settings: dict = Field(default_factory=dict)
 
-class ConfigResponse(BaseModel):
-    provider: str
-    settings: dict
-    is_ready: bool
+class ChunkingConfigUpdate(BaseModel):
+    chunk_size: int = Field(ge=64, le=8192)
+    chunk_overlap: int = Field(ge=0, le=4096)
+    chunk_separators: list[str] = Field(min_length=1, max_length=20)
+
+
+class RetrievalConfigUpdate(BaseModel):
+    mode: str = Field(pattern="^(hybrid|vector)$")
+    top_k: int = Field(ge=1, le=20)
+    score_threshold: float = Field(ge=0, le=2)
 
 
 class FetchModelsRequest(BaseModel):
-    provider: str
-    api_key: str = ""
-    base_url: str = ""
+    kind: str = Field(default="llm", pattern="^(llm|embedding)$")
+    provider: str = Field(min_length=1, max_length=32)
+    api_key: str = Field(default="", max_length=512)
+    base_url: str = Field(default="", max_length=2048)
 
 
 # ── 聊天 ────────────────────────────
 class ChatRequest(BaseModel):
-    message: str
-    session_id: str
-
-
-class SessionResponse(BaseModel):
-    id: str
-    title: str
-    created_at: str
-    updated_at: str
-
-
-class MessageResponse(BaseModel):
-    id: int
-    role: str
-    content: str
-    sources: list[dict] | None
-    created_at: str
-
-
-# ── 状态 ────────────────────────────
-class StatusResponse(BaseModel):
-    warmed_up: bool
-    config_ready: bool
-
-
-# ── 知识库文档 ──────────────────────
-class DocumentInfo(BaseModel):
-    filename: str
-    size_bytes: int
-    format: str
-    modified_at: str
-    created_at: str
+    message: str = Field(min_length=1, max_length=4000)
+    session_id: str = Field(min_length=1, max_length=64)
 
 
 class DocumentCreate(BaseModel):
-    filename: str
-    content: str
+    filename: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1, max_length=1_000_000)
 
 
 class FetchUrlRequest(BaseModel):
-    url: str
-    filename: str | None = None
-
-
-class AuditLogQuery(BaseModel):
-    user_id: int | None = None
-    action: str = ""
-    resource: str = ""
-    limit: int = 100
-    offset: int = 0
-
-
-class AuditLogResponse(BaseModel):
-    id: int
-    user_id: int | None
-    username: str
-    action: str
-    resource: str
-    resource_id: str
-    detail: str
-    ip_address: str
-    success: bool
-    created_at: str
-
-
-class AuditLogListResponse(BaseModel):
-    logs: list[AuditLogResponse]
-    total: int
-    limit: int
-    offset: int
-
-
-class DocumentStats(BaseModel):
-    doc_count: int
-    chunk_count: int
-    last_build_time: str | None = None
-    stale: bool
-    knowledge_dir: str
-
-
-class RebuildResponse(BaseModel):
-    status: str
-    message: str
-    doc_count: int | None = None
-    chunk_count: int | None = None
+    url: str = Field(min_length=1, max_length=2048)
+    filename: str | None = Field(default=None, max_length=255)

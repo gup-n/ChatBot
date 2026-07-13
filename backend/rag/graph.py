@@ -52,10 +52,10 @@ def search_node(state: AgentState) -> dict:
         if hasattr(m, "type") and m.type == "human":
             user_input = m.content if hasattr(m, "content") else str(m)
             break
-    from .vector_store import search
+    from .retrieval import search
     hits = search(user_input) if user_input else []
     tool_results = "\n\n".join(
-        f"[来源: {h['source']} | 相关度: {h['score']:.4f}]\n{h['content']}" for h in hits
+        f"[来源: {h['source']} | 距离: {h['distance']:.4f}]\n{h['content']}" for h in hits
     ) if hits else None
     logger.info("Search: %d hits", len(hits))
     return {"tool_results": tool_results}

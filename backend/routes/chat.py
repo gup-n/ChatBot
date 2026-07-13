@@ -61,6 +61,9 @@ def chat_send(req: ChatRequest, user: dict = Depends(get_current_user)):
     if not sess or sess.get("user_id") != user["id"]:
         raise HTTPException(404, "会话不存在")
 
+    if len(req.message) > Config.MAX_CHAT_MESSAGE_CHARS:
+        raise HTTPException(413, f"消息超过长度限制（{Config.MAX_CHAT_MESSAGE_CHARS} 个字符）")
+
     # 保存用户消息
     db.add_message(req.session_id, "user", req.message)
 
@@ -83,8 +86,19 @@ def chat_send(req: ChatRequest, user: dict = Depends(get_current_user)):
         "tool_results": None,
     }
 
-    # 运行 Graph
-    final_state = graph.invoke(inp)
+    # 运行 Graph。检索/Embedding 服务异常必须转换为 SSE 提示，不能让 ASGI 请求崩溃。
+    try:
+        final_state = graph.invoke(inp)
+    except Exception as exc:
+        logger.exception("RAG 检索失败")
+        message = "📚 知识库检索暂时不可用。请检查 Embedding 服务、模型名称和向量索引后重试。"
+        db.add_message(req.session_id, "assistant", message)
+
+        def _retrieval_error_stream():
+            yield f"data: {json.dumps({'token': message}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'done': True, 'full_text': message}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(_retrieval_error_stream(), media_type="text/event-stream")
     action = final_state.get("next_action", "agent")
     tool_results = final_state.get("tool_results")
 

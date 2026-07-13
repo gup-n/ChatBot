@@ -28,11 +28,22 @@
 
 **.env** **关键配置项：**
 
-| **配置项**       | **说明**           | **示例值**         |
-| ---------------- | ------------------ | ------------------ |
-| LLM_PROVIDER     | 模型提供商         | deepseek 或 ollama |
-| DEEPSEEK_API_KEY | DeepSeek  API 密钥 | sk-xxxxxxxx        |
-| DEEPSEEK_MODEL   | 模型名称           | deepseek-chat      |
+| **配置项** | **说明** | **示例值** |
+| --- | --- | --- |
+| `LLM_PROVIDER` / `LLM_SETTINGS` | 当前 LLM 的服务商与 JSON 设置 | `openai_compatible` |
+| `EMBEDDING_PROVIDER` / `EMBEDDING_SETTINGS` | 当前嵌入模型的服务商与 JSON 设置 | `huggingface` |
+| `JWT_SECRET_KEY` | 至少 32 位的随机 JWT 密钥 | 随机字符串 |
+| `INITIAL_ADMIN_PASSWORD` | 首次启动时创建管理员的强密码 | 自定义强密码 |
+
+LLM 与 Embedding 可在管理员控制台分别配置：LLM 支持 OpenAI 兼容接口和 Ollama；Embedding 支持 HuggingFace、本地 Ollama 与 OpenAI 兼容 Embedding 接口。修改 Embedding 后需要重建向量索引。详细字段和每个文件的职责见 [项目文件说明](docs/项目文件说明.md)。
+
+使用 Ollama 作为 Embedding 时，请选择专用嵌入模型（推荐 `nomic-embed-text`），并先执行 `ollama pull nomic-embed-text`；不要把 `qwen`、`deepseek` 等聊天模型用于 `/api/embed`。
+
+如果 Ollama 日志出现 `n_outputs_max` 或 `GGML_ASSERT`，请先重启并升级 Ollama。系统会逐条提交 Embedding 请求以避开部分 Ollama/llama-server 的批量输出问题；官方 `/api/embed` 接口支持单条文本作为 `input`。[Ollama Embed API](https://docs.ollama.com/api/embed)
+
+文本切片策略由 `.env` 控制：`CHUNK_SIZE` 为片段长度、`CHUNK_OVERLAP` 为相邻片段重叠长度、`CHUNK_SEPARATORS` 为 JSON 分隔符数组。修改任一项后，请重建向量索引。检索默认使用 `RETRIEVAL_MODE=hybrid`，融合向量语义检索与 BM25 关键词检索；如需仅使用向量检索可设为 `vector`。
+
+模型推理和服务参数也可在 `.env` 调优：`LLM_TEMPERATURE`、`OLLAMA_NUM_CTX`、`OLLAMA_KEEP_ALIVE`、`LLM_STREAM_TIMEOUT_SECONDS`、`EMBEDDING_TIMEOUT_SECONDS`、`URL_FETCH_TIMEOUT_SECONDS`、`JWT_TOKEN_EXPIRE_HOURS`。本地 `run.py` 的主机和端口由 `APP_HOST`、`API_PORT`、`ADMIN_PORT`、`USER_PORT` 控制；修改端口时，也应相应更新 `STREAMLIT_API_URL`。
 
 **2.3** **准备知识库文档**
 
@@ -48,7 +59,7 @@ python run.py        一键启动全部服务
 | **服务**      | **地址**                   | **默认账号**      |
 | ------------- | -------------------------- | ----------------- |
 | 后端 API 文档 | http://localhost:8000/docs | —                 |
-| 管理员控制台  | http://localhost:8501      | admin  / admin123 |
+| 管理员控制台  | http://localhost:8501      | `.env` 中配置的初始管理员 |
 | 用户聊天系统  | http://localhost:8502      | 自行注册          |
 
 按 Ctrl+C 停止所有服务。
@@ -57,7 +68,7 @@ python run.py        一键启动全部服务
 
 **4.1** **管理员控制台（端口 8501）**
 
-**登录**：使用默认管理员账号 admin / admin123 登录。
+**登录**：使用 `.env` 中的 `INITIAL_ADMIN_USERNAME` 和 `INITIAL_ADMIN_PASSWORD` 登录。首次启动时才会创建该管理员；请使用强密码。
 
 **模型配置**：选择提供商（DeepSeek 或 Ollama）→ 填写 API Key 和地址 → 点击"拉取模型列表"选择模型 → "保存配置"。
 
@@ -65,10 +76,10 @@ python run.py        一键启动全部服务
 
 **知识库管理**：
 
-- 上传文件：选择本地 txt/pdf/docx 等文件上传
+- 上传文件：可选择多个文件或文件夹；系统会递归导入其中的 txt/md/pdf/docx/json/csv 文件。默认单次最多 50 个文件、总计 100 MB、单文件 10 MB，可在 `.env` 调整。
 - 从 URL 获取：输入网页地址自动抓取
 - 手动编写：直接输入文件名和内容
-- 文档增删后点击" 重建向量索引"使其生效
+- 上传、URL 获取和手动编写会自动切片并增量入库，立即可检索；仅在修改 Embedding 模型、切片策略，或需要修复索引时点击“全量重建向量索引”。
 
 **启动服务**：首次使用需点击"启动服务"，等待预热完成后用户端即可正常问答。
 
@@ -101,20 +112,42 @@ python run.py        一键启动全部服务
 
 **Q****：端口被占用？** A：关闭占用进程，或修改 run.py 中的 --port 参数。
 
-**六、Docker 部署**
+**六、RAG 评估**
+
+项目提供 [54 题基线题集](evaluation/questions.json) 与离线评估脚本，分别统计检索召回率和回答关键事实覆盖率。题集每题包含标准答案、关键事实和期望来源；新增或修改知识库后应由业务人员复核这些标注。
+
+```bash
+# 不调用 LLM，只评估标准来源是否出现在 Top-K 检索结果中
+uv run python scripts/evaluate_rag.py --retrieval-only
+
+# 评估检索与当前 LLM 的回答，报告输出到 reports/evaluation/
+uv run python scripts/evaluate_rag.py
+```
+
+报告包含 `report.json`（便于 CI/数据分析）和 `report.md`（便于人工复核）。建议把题集扩充到 50–100 题，并按专业介绍、教务、奖助学金、考试、校园服务等分类持续维护。
+
+**七、Docker 部署**
 
 如果你已经安装了 `Docker Desktop + WSL`，可以直接用 `docker compose` 部署。
 
 **1. 准备配置**
 
 1. 复制 `.env.example` 为 `.env`
-2. 填好 `DEEPSEEK_API_KEY`
+2. 填好至少 32 字符的随机 `JWT_SECRET_KEY` 与初始管理员密码；模型可随后在管理员控制台配置
 3. 把知识库文件放到 `data/raw/`
+4. 若容器要访问宿主机 Ollama，将 LLM 或 Embedding 的 `base_url` 配置为 `http://host.docker.internal:11434`，不要使用容器内的 `127.0.0.1:11434`
 
 **2. 启动**
 
 ```bash
 docker compose up --build
+```
+
+后台运行使用：
+
+```bash
+docker compose up --build -d
+docker compose logs -f backend
 ```
 
 **3. 访问**
@@ -125,9 +158,10 @@ docker compose up --build
 
 **4. 默认账号**
 
-- 管理员: `admin / admin123`
+- 管理员: `.env` 的 `INITIAL_ADMIN_USERNAME / INITIAL_ADMIN_PASSWORD`
 
 **5. 数据持久化**
 
 - `data/` 会映射到容器内，保留数据库和向量库
 - `.env` 会被容器读取并写回，管理员在界面里保存配置后会直接落到本机 `.env`
+- 后端健康检查通过后，管理员端和用户端才会启动；服务异常会按 `unless-stopped` 自动重启

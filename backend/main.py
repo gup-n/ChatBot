@@ -55,6 +55,8 @@ def start_warmup():
 async def lifespan(app: FastAPI):
     global db
     Config.ensure_dirs()
+    if not Config.is_security_ready():
+        raise RuntimeError("JWT_SECRET_KEY 必须设置为至少 32 个字符的随机值")
     db = Database(Config.SQLITE_DB_PATH)
     seed_admin(db)
 
@@ -72,6 +74,10 @@ async def lifespan(app: FastAPI):
     app.state.warmed_up = chroma_exists
     app.state.warming_up = False
     app.state.warmup_error = None
+    app.state.rebuild_status = "idle"
+    app.state.rebuild_started_at = None
+    app.state.rebuild_finished_at = None
+    app.state.rebuild_chunk_count = None
     if chroma_exists:
         # 后台加载向量库（不阻塞启动）
         t = threading.Thread(target=_load_existing_store, daemon=True)
@@ -98,7 +104,13 @@ def _load_existing_store():
 
 
 app = FastAPI(title="网安学院问答机器人 API", version="1.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=Config.CORS_ALLOW_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 from .routes import admin, chat, auth as auth_routes
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["认证"])

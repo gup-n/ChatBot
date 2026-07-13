@@ -6,13 +6,14 @@
 启动服务后，用户在 8502 端口访问聊天系统。
 """
 
-import sys, os, logging, traceback
+import sys, os, json, logging, traceback, secrets, threading, time
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(_project_root, ".env"))
+from backend.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("admin")
@@ -22,7 +23,18 @@ import httpx
 
 # API 地址：本地用 127.0.0.1:8000，公网隧道用环境变量 STREAMLIT_API_URL
 API = os.environ.get("STREAMLIT_API_URL", "http://127.0.0.1:8000/api")
-_client = httpx.Client(transport=httpx.HTTPTransport(retries=0), timeout=300)
+HTTP_CLIENT_TIMEOUT_SECONDS = Config.HTTP_CLIENT_TIMEOUT_SECONDS
+_client = httpx.Client(transport=httpx.HTTPTransport(retries=0), timeout=HTTP_CLIENT_TIMEOUT_SECONDS)
+
+# Streamlit 浏览器刷新会创建新 session；只保存随机恢复标识，绝不把 JWT 放进 URL。
+@st.cache_resource
+def _admin_resume_store() -> tuple[dict[str, tuple[str, float]], threading.Lock]:
+    return {}, threading.Lock()
+
+
+def _remove_resume_id() -> None:
+    if "admin_session" in st.query_params:
+        del st.query_params["admin_session"]
 
 st.set_page_config(page_title="管理员控制台", page_icon="⚙️", layout="wide")
 
@@ -42,6 +54,26 @@ ACTION_LABELS = {
     "warmup": "启动预热",
 }
 
+PROVIDER_META = {
+    "openai_compatible": {
+        "label": "OpenAI 兼容接口（DeepSeek / OpenAI / 本地网关等）",
+        "base_url": "https://api.openai.com/v1",
+        "needs_key": True,
+        "fetchable": True,
+    },
+    "ollama": {
+        "label": "Ollama（本地）",
+        "base_url": "http://localhost:11434",
+        "needs_key": False,
+        "fetchable": True,
+    },
+    "huggingface": {
+        "label": "HuggingFace / Sentence Transformers（本地）",
+        "needs_key": False,
+        "fetchable": False,
+    },
+}
+
 
 def _get_audit_actions(headers: dict) -> list[str]:
     """从后端获取所有已出现的操作类型。"""
@@ -50,11 +82,128 @@ def _get_audit_actions(headers: dict) -> list[str]:
     except Exception:
         return []
 
+
+def _render_model_editor(kind: str, title: str, config: dict, headers: dict) -> None:
+    """渲染 LLM 或 Embedding 的统一配置编辑器。"""
+    allowed = ["openai_compatible", "ollama"]
+    if kind == "embedding":
+        allowed.append("huggingface")
+    active = config.get("provider", allowed[0])
+    all_settings = config.get("all_settings", {})
+    provider = st.selectbox(
+        f"{title}提供商", allowed,
+        index=allowed.index(active) if active in allowed else 0,
+        format_func=lambda item: PROVIDER_META[item]["label"], key=f"{kind}_provider",
+    )
+    meta = PROVIDER_META[provider]
+    saved = all_settings.get(provider, {})
+    settings: dict[str, str] = {}
+    if meta["needs_key"]:
+        settings["api_key"] = st.text_input(
+            "API Key", value=saved.get("api_key", ""), type="password", key=f"{kind}_{provider}_key"
+        )
+    if "base_url" in meta:
+        settings["base_url"] = st.text_input(
+            "服务地址", value=saved.get("base_url", meta["base_url"]), key=f"{kind}_{provider}_url"
+        )
+    model = st.text_input(
+        "模型名称", value=saved.get("model", ""),
+        placeholder="例如 gpt-4o-mini、deepseek-chat、qwen2.5:7b 或 nomic-embed-text",
+        key=f"{kind}_{provider}_model",
+    )
+    settings["model"] = model
+    if kind == "embedding" and provider == "ollama":
+        st.info("请使用专用嵌入模型，例如 `nomic-embed-text`；首次使用需执行 `ollama pull nomic-embed-text`。聊天模型不能替代 Embedding 模型。")
+
+    if meta["fetchable"] and st.button("🔍 拉取模型列表", key=f"{kind}_{provider}_fetch"):
+        if meta["needs_key"] and not settings.get("api_key"):
+            st.error("请先填写 API Key")
+        else:
+            try:
+                response = _client.post(
+                    f"{API}/admin/models", headers=headers,
+                    json={"kind": kind, "provider": provider, **settings},
+                )
+                if response.status_code == 200:
+                    models = response.json().get("models", [])
+                    st.session_state[f"{kind}_{provider}_models"] = [item["id"] for item in models]
+                    st.success(f"找到 {len(models)} 个模型；可复制名称到上方输入框。")
+                else:
+                    st.error(response.json().get("detail", "拉取失败"))
+            except Exception as exc:
+                st.error(f"拉取失败: {exc}")
+    models = st.session_state.get(f"{kind}_{provider}_models", [])
+    if models:
+        st.caption("可用模型：" + " | ".join(models[:12]))
+
+    if st.button(f"💾 保存{title}配置", type="primary", key=f"{kind}_{provider}_save"):
+        try:
+            response = _client.put(
+                f"{API}/admin/config", headers=headers,
+                json={"kind": kind, "provider": provider, "settings": settings},
+            )
+            if response.status_code == 200:
+                suffix = "请重建向量索引后生效。" if kind == "embedding" else "已立即生效。"
+                st.success(f"{title}配置已保存，{suffix}")
+                st.rerun()
+            else:
+                st.error(response.json().get("detail", "保存失败"))
+        except Exception as exc:
+            st.error(f"保存失败: {exc}")
+
 # ── State ──
 if "admin_logged_in" not in st.session_state:
     st.session_state["admin_logged_in"] = False
 if "token" not in st.session_state:
     st.session_state["token"] = ""
+
+
+def _restore_admin_session() -> None:
+    """从短期随机恢复标识恢复登录；后端仍会校验 JWT 是否有效。"""
+    if st.session_state["admin_logged_in"]:
+        return
+    resume_id = st.query_params.get("admin_session")
+    if not resume_id:
+        return
+    sessions, lock = _admin_resume_store()
+    with lock:
+        record = sessions.get(str(resume_id))
+    if not record or record[1] <= time.time():
+        _remove_resume_id()
+        return
+    token = record[0]
+    try:
+        response = _client.get(f"{API}/admin/config", headers={"Authorization": f"Bearer {token}"})
+        if response.status_code == 200:
+            st.session_state["token"] = token
+            st.session_state["admin_logged_in"] = True
+            return
+    except httpx.HTTPError:
+        pass
+    with lock:
+        sessions.pop(str(resume_id), None)
+    _remove_resume_id()
+
+
+def _persist_admin_session(token: str) -> None:
+    """写入 URL 中的随机句柄；过期时间与 JWT 配置保持一致。"""
+    resume_id = secrets.token_urlsafe(32)
+    expires_at = time.time() + Config.JWT_TOKEN_EXPIRE_HOURS * 3600
+    sessions, lock = _admin_resume_store()
+    with lock:
+        sessions[resume_id] = (token, expires_at)
+    st.query_params["admin_session"] = resume_id
+
+
+def _clear_admin_session() -> None:
+    resume_id = st.query_params.get("admin_session")
+    if resume_id:
+        sessions, lock = _admin_resume_store()
+        with lock:
+            sessions.pop(str(resume_id), None)
+    _remove_resume_id()
+    st.session_state["token"] = ""
+    st.session_state["admin_logged_in"] = False
 
 
 def main():
@@ -65,6 +214,7 @@ def main():
 
 
 def _route():
+    _restore_admin_session()
     if st.session_state["admin_logged_in"]:
         _render_setup()
     else:
@@ -96,6 +246,7 @@ def _render_login():
                     return
                 st.session_state["token"] = data["access_token"]
                 st.session_state["admin_logged_in"] = True
+                _persist_admin_session(data["access_token"])
                 st.rerun()
             except Exception as e:
                 st.error(f"连接后端失败: {e}")
@@ -108,141 +259,27 @@ def _render_setup():
 
     st.title("⚙️ 管理员控制台")
     st.caption("配置模型、管理用户、管理知识库、启动服务")
+    if st.button("退出登录", key="admin_logout"):
+        _clear_admin_session()
+        st.rerun()
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔧 模型配置", "👥 用户管理", "📚 知识库管理", "🚀 启动服务", "📋 审计日志"])
 
     # ── Tab 1: 模型配置 ──
     with tab1:
-        # 当前配置
         try:
             r = _client.get(f"{API}/admin/config", headers=h)
             cfg = r.json()
         except Exception:
-            cfg = {"provider": "deepseek", "settings": {}, "is_ready": False, "all_settings": {}}
-
-        all_settings = cfg.get("all_settings", {})
-        current_provider = cfg.get("provider", "deepseek")
-
-        # 提供商元数据：定义每个 provider 的字段
-        PROVIDER_META = {
-            "deepseek": {
-                "label": "DeepSeek",
-                "default_base_url": "https://api.deepseek.com",
-                "fields": [
-                    {"key": "api_key", "label": "API Key", "type": "password", "placeholder": "sk-..."},
-                    {"key": "base_url", "label": "API 地址", "type": "text", "placeholder": "https://api.deepseek.com"},
-                ],
-            },
-            "ollama": {
-                "label": "Ollama (本地)",
-                "default_base_url": "http://localhost:11434",
-                "fields": [
-                    {"key": "base_url", "label": "服务地址", "type": "text", "placeholder": "http://localhost:11434"},
-                ],
-            },
-        }
-
-        prov_names = list(PROVIDER_META.keys())
-        current_idx = prov_names.index(current_provider) if current_provider in prov_names else 0
-        prov = st.selectbox("模型提供商", prov_names, index=current_idx,
-                            format_func=lambda p: PROVIDER_META[p]["label"])
-
-        # 加载当前选中 provider 的已保存设置
-        saved = all_settings.get(prov, {})
-        meta = PROVIDER_META[prov]
-
-        # ── 供应商特有字段 ──
-        field_values = {}
-        for field in meta["fields"]:
-            key = field["key"]
-            default = saved.get(key, field.get("default", ""))
-            if field["type"] == "password":
-                field_values[key] = st.text_input(field["label"], type="password",
-                                                  value=default, placeholder=field["placeholder"])
-            else:
-                field_values[key] = st.text_input(field["label"], value=default,
-                                                  placeholder=field["placeholder"])
-
-        # ── 模型选择区域 ──
-        api_key = field_values.get("api_key", "")
-        base_url = field_values.get("base_url", "") or meta.get("default_base_url", "")
-
-        # 初始化当前选中的模型到 session state
-        model_key = f"selected_model_{prov}"
-        if model_key not in st.session_state:
-            st.session_state[model_key] = saved.get("model", "")
-
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            current_model = st.session_state[model_key]
-            model_name = st.text_input(
-                "模型名称",
-                value=current_model,
-                placeholder="如: deepseek-chat 或 qwen2.5:7b",
-                key=f"model_input_{prov}",
-            )
-            # 显示已拉取的模型列表供参考
-            model_list = st.session_state.get(f"model_list_{prov}", [])
-            if model_list:
-                model_ids = [m["id"] for m in model_list]
-                st.caption(f"已拉取 {len(model_list)} 个模型: {' | '.join(model_ids[:8])}{'...' if len(model_ids) > 8 else ''}")
-            # 更新选中的模型
-            if model_name:
-                st.session_state[model_key] = model_name
-
-        with c2:
-            st.write("")  # 对齐
-            if st.button("🔍 拉取模型列表", key=f"fetch_{prov}"):
-                if prov == "ollama" or (prov != "ollama" and api_key):
-                    with st.spinner("正在拉取..."):
-                        try:
-                            body = {"provider": prov, "api_key": api_key, "base_url": base_url}
-                            r = _client.post(f"{API}/admin/models", headers=h, json=body)
-                            if r.status_code == 200:
-                                data = r.json()
-                                models = data.get("models", [])
-                                st.session_state[f"model_list_{prov}"] = models
-                                if models and st.session_state[model_key] not in [m["id"] for m in models]:
-                                    st.session_state[model_key] = models[0]["id"]
-                                st.success(f"找到 {len(models)} 个模型")
-                                st.rerun()
-                            else:
-                                try:
-                                    st.error(r.json().get("detail", "拉取失败"))
-                                except Exception:
-                                    st.error(f"拉取失败: {r.text}")
-                        except Exception as e:
-                            st.error(f"请求失败: {e}")
-                else:
-                    st.error("请先填写 API Key")
-
-        st.caption(f"已保存的 {meta['label']} 模型: **{saved.get('model', '未设置')}**")
-
-        # ── 保存 ──
-        if st.button("💾 保存配置", type="primary"):
-            settings = {k: v for k, v in field_values.items() if v}
-            settings["model"] = st.session_state[model_key]
-            if prov == "deepseek" and not settings.get("api_key"):
-                st.error("DeepSeek 需要填写 API Key")
-            elif not settings.get("model"):
-                st.error("请选择或输入模型名称")
-            else:
-                try:
-                    r = _client.put(f"{API}/admin/config", headers=h, json={
-                        "provider": prov, "settings": settings,
-                    })
-                    if r.status_code == 200:
-                        st.success(f"已切换到 {meta['label']} — 模型: {settings['model']}")
-                        st.rerun()
-                    else:
-                        st.error(f"保存失败: {r.text}")
-                except Exception as e:
-                    st.error(str(e))
-
-        st.caption(f"当前激活: **{PROVIDER_META.get(current_provider, {}).get('label', current_provider)}**"
-                   f" — 模型: **{cfg.get('settings', {}).get('model', '?')}**"
-                   f" | 状态: {'✅ 已配置' if cfg.get('is_ready') else '❌ 未配置'}")
-        st.caption("切换提供商 → 填配置 → 拉取模型列表选择模型 → 保存配置即可生效。")
+            cfg = {"llm": {}, "embedding": {}}
+        left, right = st.columns(2)
+        with left:
+            st.subheader("语言模型（LLM）")
+            _render_model_editor("llm", "LLM", cfg.get("llm", {}), h)
+        with right:
+            st.subheader("向量嵌入模型（Embedding）")
+            _render_model_editor("embedding", "Embedding", cfg.get("embedding", {}), h)
+        st.info("LLM 保存后立即生效；Embedding 保存后必须在“知识库管理”中重建向量索引。")
 
     # ── Tab 2: 用户管理 ──
     with tab2:
@@ -293,6 +330,21 @@ def _render_setup():
         except Exception:
             stats = {"doc_count": 0, "chunk_count": 0, "last_build_time": None, "stale": False}
 
+        try:
+            knowledge_config = _client.get(f"{API}/admin/config", headers=h).json()
+            chunking = knowledge_config.get("chunking", {})
+            retrieval = knowledge_config.get("retrieval", {})
+        except Exception:
+            chunking = {}
+            retrieval = {}
+
+        try:
+            rebuild_status = _client.get(f"{API}/admin/status", headers=h).json()
+        except Exception:
+            rebuild_status = {"warming_up": False, "warmup_error": None, "rebuild_status": "idle"}
+        rebuild_phase = rebuild_status.get("rebuild_status") or ("running" if rebuild_status.get("warming_up") else "idle")
+        rebuilding = rebuild_phase == "running"
+
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("文档数量", stats.get("doc_count", 0))
         c2.metric("向量块数", stats.get("chunk_count", 0))
@@ -303,15 +355,93 @@ def _render_setup():
         else:
             c4.success("✅ 索引已同步")
 
-        if st.button("🔄 重建向量索引", type="primary"):
+        if rebuilding:
+            st.info("⏳ 正在全量重建向量索引。完成前已禁用重建按钮，请勿关闭后端服务；刷新页面可查看最新状态。")
+        elif rebuild_phase == "succeeded":
+            chunk_count = rebuild_status.get("rebuild_chunk_count")
+            suffix = f"共写入 {chunk_count} 个向量块。" if chunk_count is not None else ""
+            st.success(f"✅ 最近一次向量索引重建已完成。{suffix}")
+        elif rebuild_phase == "failed":
+            error = rebuild_status.get("warmup_error")
+            st.error(f"向量索引重建失败：{error or '未知错误'}")
+
+        if st.button("🔄 全量重建向量索引", type="secondary", disabled=rebuilding):
             r = _client.post(f"{API}/admin/rebuild", headers=h)
             if r.status_code == 200:
-                st.success("重建已启动，请稍后刷新查看")
+                st.rerun()
             else:
                 try:
                     st.error(r.json().get("detail", "重建失败"))
                 except Exception:
                     st.error(f"重建失败: {r.text}")
+
+        with st.expander("⚙️ 切片策略", expanded=False):
+            st.caption("保存后会标记索引待重建。切分符按从左到右的优先级尝试；`\\n\\n` 表示段落，空字符串表示最终强制切分。")
+            chunk_size = st.number_input(
+                "切块大小（字符）", min_value=64, max_value=8192,
+                value=int(chunking.get("chunk_size", 512)), step=32, key="chunk_size",
+            )
+            max_overlap = max(int(chunk_size) - 1, 0)
+            default_overlap = min(int(chunking.get("chunk_overlap", 50)), max_overlap)
+            chunk_overlap = st.number_input(
+                "切块重叠（字符）", min_value=0, max_value=max_overlap,
+                value=default_overlap, step=10, key="chunk_overlap",
+            )
+            separators_text = st.text_area(
+                "切分符（JSON 字符串数组）",
+                value=json.dumps(chunking.get("chunk_separators", ["\n\n", "\n", "。", "，", " ", ""]), ensure_ascii=False),
+                help='例如：["\\n\\n", "\\n", "。", "，", " ", ""]', key="chunk_separators",
+            )
+            if st.button("保存切片策略", key="save_chunking"):
+                try:
+                    separators = json.loads(separators_text)
+                    if not isinstance(separators, list) or not all(isinstance(item, str) for item in separators):
+                        raise ValueError("切分符必须是 JSON 字符串数组")
+                    response = _client.put(
+                        f"{API}/admin/chunking", headers=h,
+                        json={"chunk_size": int(chunk_size), "chunk_overlap": int(chunk_overlap), "chunk_separators": separators},
+                    )
+                    if response.status_code == 200:
+                        st.success("切片策略已保存，请点击“全量重建向量索引”。")
+                        st.rerun()
+                    else:
+                        st.error(response.json().get("detail", "保存失败"))
+                except (ValueError, json.JSONDecodeError) as exc:
+                    st.error(f"切片策略格式错误：{exc}")
+
+        with st.expander("🔎 检索策略", expanded=False):
+            st.caption("混合检索同时使用向量语义和关键词 BM25，适合教务、金额、时间、地点等事实问答；仅向量检索适合对照实验。保存后立即生效。")
+            retrieval_mode = st.selectbox(
+                "检索模式", ["hybrid", "vector"],
+                index=0 if retrieval.get("mode", "hybrid") == "hybrid" else 1,
+                format_func=lambda value: "混合检索（推荐）" if value == "hybrid" else "仅向量检索",
+                key="retrieval_mode",
+            )
+            retrieval_top_k = st.number_input(
+                "返回结果数量（Top-K）", min_value=1, max_value=20,
+                value=int(retrieval.get("top_k", 6)), key="retrieval_top_k",
+            )
+            retrieval_threshold = st.number_input(
+                "向量距离阈值", min_value=0.0, max_value=2.0,
+                value=float(retrieval.get("score_threshold", 0.3)), step=0.05,
+                help="仅影响向量候选；数值越小越严格。混合模式仍会保留关键词召回结果。",
+                key="retrieval_threshold",
+            )
+            if st.button("保存检索策略", key="save_retrieval"):
+                response = _client.put(
+                    f"{API}/admin/retrieval", headers=h,
+                    json={"mode": retrieval_mode, "top_k": int(retrieval_top_k), "score_threshold": float(retrieval_threshold)},
+                )
+                if response.status_code == 200:
+                    st.success("检索策略已保存并立即生效。")
+                    st.rerun()
+                elif response.status_code == 404:
+                    st.error("后端未加载“检索策略”接口。请重启后端服务后重试。")
+                else:
+                    try:
+                        st.error(response.json().get("detail", "保存失败"))
+                    except Exception:
+                        st.error(f"保存失败: {response.text}")
 
         st.divider()
         st.subheader("➕ 添加文档")
@@ -319,12 +449,28 @@ def _render_setup():
         up_method = st.radio("添加方式", ["📁 上传文件", "🔗 从URL获取", "✏️ 手动编写"], horizontal=True)
 
         if up_method == "📁 上传文件":
-            up_file = st.file_uploader("选择文件", type=["txt", "md", "pdf", "docx", "json", "csv"])
-            if up_file and st.button("上传", key="btn_upload"):
-                files = {"file": (up_file.name, up_file.getvalue(), up_file.type or "application/octet-stream")}
+            upload_mode = st.radio(
+                "上传范围", ["文件（可多选）", "文件夹（递归导入）"], horizontal=True,
+                help="文件模式可直接多选文件；文件夹模式会读取其中全部受支持文件。",
+            )
+            is_directory = upload_mode == "文件夹（递归导入）"
+            up_files = st.file_uploader(
+                "选择文件夹" if is_directory else "选择一个或多个文件",
+                type=["txt", "md", "pdf", "docx", "json", "csv"],
+                accept_multiple_files="directory" if is_directory else True,
+                help="将递归导入其中所有受支持文件。" if is_directory else "按住 Ctrl 或 Shift 可选择多个文件。",
+                key="directory_uploader" if is_directory else "file_uploader",
+            )
+            st.caption("上传后会自动切片并增量入库；单次最多 50 个文件、总计 100 MB、单文件最大 10 MB（均可通过环境变量调整）。")
+            if up_files and st.button("上传", key="btn_upload"):
+                files = [("files", (item.name, item.getvalue(), item.type or "application/octet-stream")) for item in up_files]
                 r = _client.post(f"{API}/admin/documents/upload", headers={"Authorization": h["Authorization"]}, files=files)
                 if r.status_code == 200:
-                    st.success(f"✅ {up_file.name} 上传成功")
+                    data = r.json()
+                    if data.get("indexed"):
+                        st.success(f"✅ 已上传并入库 {data.get('count', len(up_files))} 个文件，共 {data.get('chunk_count', 0)} 个向量块")
+                    else:
+                        st.warning("文件已保存，但当前索引待重建；请先执行全量重建后再检索。")
                     st.rerun()
                 else:
                     try:
@@ -342,7 +488,10 @@ def _render_setup():
                 r = _client.post(f"{API}/admin/documents/fetch-url", headers=h, json=body)
                 if r.status_code == 200:
                     data = r.json()
-                    st.success(f"✅ 已保存为 {data['filename']}")
+                    if data.get("indexed"):
+                        st.success(f"✅ 已保存并入库 {data['filename']}（{data.get('chunk_count', 0)} 个向量块）")
+                    else:
+                        st.warning(f"已保存 {data['filename']}，但当前索引待重建。")
                     st.rerun()
                 else:
                     try:

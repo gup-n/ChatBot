@@ -10,7 +10,20 @@
     用户聊天系统: http://localhost:8502  (注册后登录)
 """
 
+import os
 import subprocess, sys, time
+
+APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
+API_PORT = os.getenv("API_PORT", "8000")
+ADMIN_PORT = os.getenv("ADMIN_PORT", "8501")
+USER_PORT = os.getenv("USER_PORT", "8502")
+
+
+def _frontend_env() -> dict[str, str]:
+    """前端未显式配置 API 地址时，自动跟随本次后端端口。"""
+    env = os.environ.copy()
+    env.setdefault("STREAMLIT_API_URL", f"http://127.0.0.1:{API_PORT}/api")
+    return env
 
 
 def _shutdown(procs):
@@ -50,37 +63,37 @@ def main():
 
     # ── 1. FastAPI 后端 ──
     if start_backend:
-        print("[run] FastAPI 后端 (端口 8000)...")
+        print(f"[run] FastAPI 后端 (端口 {API_PORT})...")
         api = subprocess.Popen([
             sys.executable, "-m", "uvicorn", "backend.main:app",
-            "--host", "0.0.0.0", "--port", "8000",
+            "--host", APP_HOST, "--port", API_PORT,
         ])
         procs.append(("FastAPI", api))
         time.sleep(2)
 
     # ── 2. 管理员控制台 ──
     if start_admin:
-        print("[run] 管理员控制台 (端口 8501)...")
+        print(f"[run] 管理员控制台 (端口 {ADMIN_PORT})...")
         admin = subprocess.Popen([
             sys.executable, "-m", "streamlit", "run", "frontend/admin/app.py",
-            "--server.address", "0.0.0.0", "--server.port", "8501",
+            "--server.address", APP_HOST, "--server.port", ADMIN_PORT,
             "--server.headless", "true",
             "--server.enableXsrfProtection", "false",
             "--server.enableCORS", "false",
-        ])
+        ], env=_frontend_env())
         procs.append(("Admin", admin))
         time.sleep(3)
 
     # ── 3. 用户聊天系统 ──
     if start_user:
-        print("[run] 用户聊天系统 (端口 8502)...")
+        print(f"[run] 用户聊天系统 (端口 {USER_PORT})...")
         user = subprocess.Popen([
             sys.executable, "-m", "streamlit", "run", "frontend/user/app.py",
-            "--server.address", "0.0.0.0", "--server.port", "8502",
+            "--server.address", APP_HOST, "--server.port", USER_PORT,
             "--server.headless", "true",
             "--server.enableXsrfProtection", "false",
             "--server.enableCORS", "false",
-        ])
+        ], env=_frontend_env())
         procs.append(("User", user))
         time.sleep(3)
 
@@ -88,9 +101,9 @@ def main():
     print("=" * 55)
     print("  网安学院问答机器人 — 已启动")
     print()
-    print("  后端 API:      http://localhost:8000/docs")
-    print("  管理员控制台:  http://localhost:8501")
-    print("  用户聊天系统:  http://localhost:8502")
+    print(f"  后端 API:      http://localhost:{API_PORT}/docs")
+    print(f"  管理员控制台:  http://localhost:{ADMIN_PORT}")
+    print(f"  用户聊天系统:  http://localhost:{USER_PORT}")
     print()
     print("  管理员: admin / admin123")
     print("  用户:   自行注册或管理员添加")
